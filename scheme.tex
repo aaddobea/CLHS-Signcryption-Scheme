@@ -1,0 +1,529 @@
+% Certificateless Hybrid Signcryption Scheme - Corrected Algorithms
+\documentclass[10pt]{article}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{bm}
+\usepackage[margin=1in]{geometry}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proof}{Proof}
+% Define the compact algorithm environment
+\newenvironment{compactalgo}[1]{%
+  \noindent\underline{#1}\par\smallskip
+  \begin{algorithmic}[0]
+}{%
+  \end{algorithmic}%
+  \par\smallskip
+}
+
+\begin{document}
+
+\section{Detailed Protocol Flow for Certificateless Hybrid Signcryption Scheme}
+
+\subsection{System Initialization Phase}
+The certificateless hybrid signcryption scheme begins with a crucial initialization phase conducted by the Key Dispensation Server (KDS). The KDS executes the $\texttt{GlobalSetup}(1^\lambda)$ algorithm taking a security parameter $\lambda$ as input. During this process, the KDS also constructs an elliptic curve $E$ over the finite field $\mathbb{F}_q$ and selects a generator point $P \in G$. Additionally, the KDS creates a master secret key $x$ randomly selected from $\mathbb{Z}_q^*$ and computes the corresponding master public key $P_{pub} = xP$. The KDS then defines three cryptographic hash functions: $H_1: \{0,1\}^* \rightarrow \mathbb{Z}_q^*$, $H_2: \{0,1\}^* \rightarrow \{0,1\}^n$, and $H_3: \{0,1\}^* \times \mathbb{Z}_q^* \rightarrow G$. Once these parameters are established, the KDS publishes the public parameters $PP = \{\mathbb{F}_q, P, E/\mathbb{F}_q, G, P_{pub}, H_1, H_2, H_3\}$ to all participants while keeping the master secret key $x$ confidential. This initialization creates the cryptographic foundation upon which the entire system will operate.
+
+\subsection{Entity Registration Phase}
+Following system initialization, each system participant—whether a patient (P) or doctor (D)—must undergo a registration process to establish their cryptographic credentials. This phase consists of several interconnected steps that create the certificateless characteristic of the scheme.
+
+First, the participant executes the $\texttt{P\_Keygen}(PP)$ algorithm. Using the published system parameters, the participant generates a secret value $t_i$ chosen randomly from $\mathbb{Z}_q^*$ and computes the corresponding public value $T_i = t_i \cdot P$. The secret value $t_i$ is kept private by the participant, while the public value $T_i$ can be shared openly.
+
+Next, the participant must obtain a partial private key from the KDS. The participant submits their identity $\text{ID}_i$ and public value $T_i$ to the KDS through a secure TLS-encrypted channel. This secure transmission is essential to prevent identity spoofing and man-in-the-middle attacks during the registration phase.
+
+Upon receiving the participant's request, the KDS executes the $\texttt{Extract}(PP, x, \text{ID}_i, T_i)$ algorithm. The KDS generates a random value $r_i \in \mathbb{Z}_q^*$ and computes $R_i = r_i \cdot P$. Then, using the master secret key $x$, the KDS calculates the partial private key $D_i = r_i + x \cdot H_1(\text{ID}_i, R_i)$. This partial private key, along with $R_i$, is transmitted back to the participant via the secure TLS-encrypted channel. The mechanism ensures that while the KDS contributes to key generation, it cannot determine the participant's full private key, thereby eliminating the key escrow problem inherent in traditional identity-based cryptosystems.
+
+Once the participant receives the partial private key, it verifies the partial private key $D_i \stackrel{?}{=}r_i + xH_1(\text{ID}_i, R_i)P_{pub}$. If the equality does not hold, the participant rejects the partial private key \( D_i \). Otherwise, the participant accepts \( D_i \) and proceeds to execute the \texttt{Key\_Setup}(\(t_i, D_i, R_i\)) algorithm to establish their full cryptographic identity. The participant combines their secret value $t_i$ with the received partial private key $D_i$ to form their full private key $S_i = (t_i, D_i)$. Simultaneously, they establish their public key as $P_i = (T_i, R_i)$. This dual-component structure of both keys is a fundamental characteristic of certificateless cryptography, ensuring that neither the KDS nor any third party can unilaterally determine a participant's private key. This phase completes the registration process, establishing the cryptographic credentials necessary for secure communication within the framework.
+
+\subsection{Data Signcryption Phase}
+When a patient wishes to securely share their Electronic Medical Record (EMR) data with a doctor, they initiate the data signcryption phase. This process creates a confidential and authenticated package of medical data that only the intended recipient can access and verify.
+
+The signcryption process begins with the patient executing the $\texttt{Signcrypt}(PP, P_{data}, \text{ID}_u, P_u, S_u, \text{ID}_r, P_r)$ algorithm, where $P_{data}$ represents the patient's medical data, $\text{ID}_u, P_u, S_u$ are the patient's identity, public key, and private key respectively, and $\text{ID}_r, P_r$ are the intended doctor's identity and public key. This comprehensive algorithm integrates both encryption and signature functionalities into a single efficient operation.
+
+Within the signcryption algorithm, the patient first executes the $\texttt{Sym\_keygen}(\text{ID}_u, P_u, S_u, \text{ID}_r, P_r)$ function to establish a secure symmetric encryption key. The patient generates a random value $\alpha \in \mathbb{Z}_q^*$ and computes $U = \alpha \cdot P$. Then, using the doctor's public key components, the patient calculates $V = \alpha \cdot (R_r + H_1(\text{ID}_r, R_r) \cdot P_{pub} + T_r)$. From these values, the patient derives a symmetric encryption key $K = H_2(U, V, \text{ID}_u, \text{ID}_r)$ and creates state information $\phi$ containing all necessary parameters for subsequent operations. This key generation mechanism ensures forward secrecy, as each signcryption operation uses fresh random values.
+
+With the symmetric key established, the patient encrypts their medical data using the Data Encapsulation Mechanism (DEM) as $c = \texttt{DEM.Enc}_K(P_{data})$. This symmetric encryption provides computational efficiency, especially for large medical datasets such as imaging records.
+
+Following encryption, the patient needs to authenticate the ciphertext. The patient executes $\texttt{CL-Encaps}(\phi, c)$, selecting a random value $l \in \mathbb{Z}_q^*$ and computing $\beta = l \cdot P$. The patient then generates a cryptographic hash $h = H_3(c, \text{ID}_u, \text{ID}_r, R_u, R_r, P_u, P_r, \beta, U, V)$ binding all relevant parameters to the encrypted data. Using their private key components, the patient computes the signature factor $F = l/(h \cdot t_u + D_u)$ and creates the signature $\sigma = (F, h)$. The complete encapsulation is formed as $\gamma = (\beta, U, V, \sigma)$.
+
+Finally, the patient constructs the complete ciphertext $CT = (\gamma, c)$ combining both the encrypted medical data and the authentication information. This ciphertext is transmitted to the doctor through a regular communication channel. The signcryption phase effectively achieves both confidentiality and authentication in a single integrated operation, reducing computational and communication overhead compared to separate encryption and signature processes.
+
+\subsection{Data Unsigncryption Phase}
+Upon receiving the signcrypted medical data, the doctor initiates the unsigncryption phase to verify authenticity and recover the original patient data. This phase ensures that only the legitimate intended recipient can access the sensitive medical information while simultaneously verifying its origin and integrity.
+
+The doctor begins by executing the $\texttt{Unsigncrypt}(PP, CT, \text{ID}_u, P_u, \text{ID}_r, P_r, S_r)$ algorithm, where $CT$ is the received ciphertext, $\text{ID}_u, P_u$ are the patient's identity and public key, and $\text{ID}_r, P_r, S_r$ are the doctor's own identity, public key, and private key. This algorithm encompasses both decryption and signature verification in a unified process.
+
+First, the doctor parses the ciphertext $CT$ into its components $(\gamma, c)$, where $\gamma$ represents the encapsulation information and $c$ is the encrypted medical data. The doctor then executes the $\texttt{CL-Decaps}(\gamma, c, \text{ID}_u, P_u, \text{ID}_r, S_r)$ algorithm to recover the symmetric key and verify the data authenticity simultaneously.
+
+Within the decapsulation process, the doctor uses their private key components to compute $W = V/(D_r + t_r)$. Due to the mathematical properties of elliptic curve cryptography, this computation recovers the value $W = U = \alpha P$ when performed by the legitimate recipient. The doctor then recomputes the hash value $h' = H_3(c, \text{ID}_u, \text{ID}_r, R_u, R_r, P_u, P_r, \beta, U, V)$ and verifies that it matches the received hash $h$. Additionally, the doctor checks the signature equation $F \cdot (h \cdot T_u + R_u + H_1(\text{ID}_u, R_u) \cdot P_{pub}) = \beta$ to confirm the patient's authenticity.
+
+If both verifications succeed, the doctor derives the symmetric key $K = H_2(U, V, \text{ID}_u, \text{ID}_r)$ identical to the one generated by the patient. This key recovery is only possible for the intended recipient possessing the correct private key, ensuring confidentiality of the medical data. Using this symmetric key, the doctor decrypts the medical data as $P_{data} = \texttt{DEM.Dec}_K(c)$.
+
+If any verification step fails—indicating either tampering with the data or an unauthorized decryption attempt—the algorithm returns an error $\perp$, and the decryption process is aborted. This failure indication serves as a security measure against malicious manipulation of medical records or unauthorized access attempts.
+
+The unsigncryption phase effectively completes the secure communication protocol, allowing the doctor to access authentic patient data while maintaining all required security properties. This unified approach offers computational advantages over separate encryption and signature verification processes, particularly beneficial in healthcare environments with resource constraints.
+
+\subsection{Security Properties of the Protocol Flow}
+The described protocol flow inherently enforces several critical security properties essential for electronic medical record management. The confidentiality property ensures that only the legitimate doctor possessing the correct private key can derive the symmetric key necessary to decrypt the patient data. This is enforced through the key encapsulation mechanism that binds the decryption capability to the doctor's secret credentials.
+
+The authentication property is maintained through the signature component that cryptographically binds the patient's identity to the medical data. Any attempt to forge this binding would require solving the computationally hard Elliptic Curve Discrete Logarithm Problem (ECDLP), ensuring that only the legitimate patient can create valid signcryptions.
+
+Data integrity is guaranteed by incorporating the hash of the ciphertext into the signature computation. Any modification to the encrypted data would invalidate the hash, causing signature verification to fail during the unsigncryption process. This protects against both accidental corruption and malicious tampering of medical records during transmission or storage.
+
+The non-repudiation property is achieved through the signature mechanism that utilizes the patient's private key components. Since only the patient possesses these components, they cannot later deny having created the signcryption. This property is particularly important in medical contexts where accountability for data sharing is often a legal requirement.
+
+Forward secrecy is ensured by generating fresh random values for each signcryption operation. Even if a private key is compromised in the future, past communications remain protected because each session uses independently generated cryptographic parameters. This mitigates the damage of potential key compromises in long-term medical record systems.
+
+The key freshness property is maintained through the generation of new random values $\alpha$ and $l$ for each signcryption operation. This prevents replay attacks and ensures that each medical data transmission has unique cryptographic protection. The inclusion of identities and public keys in the key derivation further binds each communication to its specific participants.
+
+Together, these security properties create a comprehensive protection framework for sensitive medical data, addressing the unique challenges of healthcare information systems while maintaining efficient communication and processing capabilities.
+
+\begin{figure}
+\fboxsep=5pt
+\fbox{%
+\begin{minipage}{\textwidth}
+\begin{minipage}[t]{0.5\textwidth}
+\begin{compactalgo}{GlobalSetup$(1^\lambda) \rightarrow (PP, x, P_{pub})$}
+\STATE $q \leftarrow$ $\lambda$-bit prime
+\STATE $G \leftarrow E/\mathbb{F}_q$
+\STATE $P \leftarrow$ generator of $G$
+\STATE $x \stackrel{\$}{\leftarrow} \mathbb{Z}^*_q$
+\STATE $P_{pub} \leftarrow xP$
+\STATE $H_1 :\{0,1\}^* \to \mathbb{Z}^*_q$
+\STATE $H_2:\{0,1\}^* \to \{0,1\}^n$
+\STATE $H_3 : \{0,1\}^* \times \mathbb{Z}^*_q  \to G$
+\STATE $PP \leftarrow \{\mathbb{F}_q, P, E/\mathbb{F}_q, G, P_{pub}, H_1,H_2,H_3\}$
+\RETURN $(PP, x, P_{pub})$
+\end{compactalgo}
+\begin{compactalgo}{$P_{Keygen}(PP) \rightarrow (t_i, T_i)$}
+\STATE $t_i \stackrel{\$}{\leftarrow} \mathbb{Z}^*_q$
+\STATE $T_i \leftarrow t_i P$
+\RETURN $(t_i, T_i)$
+\end{compactalgo}
+
+\begin{compactalgo}{$Extract(PP, x, \text{ID}_i, T_i) \rightarrow D_i$}
+\STATE $r_i \stackrel{\$}{\leftarrow} \mathbb{Z}^*_q$
+\STATE $R_i \leftarrow r_iP$
+\STATE $D_i \leftarrow r_i + xH_1({\text{ID}}_i,R_i)$
+\RETURN $(D_i, R_i)$
+\end{compactalgo}
+
+\begin{compactalgo}{$Key_{Setup}(t_i, D_i, R_i) \rightarrow (P_i, S_i)$}
+\STATE $S_i \leftarrow (t_i, D_i)$
+\STATE $P_i \leftarrow (T_i, R_i)$
+\RETURN $(P_i, S_i)$
+\end{compactalgo}
+
+\begin{compactalgo}{$Sym_{keygen}(\text{ID}_u, P_u, S_u, \text{ID}_r, P_r) \rightarrow (K,\phi)$}
+\STATE $\alpha \stackrel{\$}{\leftarrow} \mathbb{Z}^*_q$
+\STATE $U \leftarrow \alpha P$
+\STATE $V \leftarrow \alpha(R_r + H_1(\text{ID}_r,R_r)P_{pub} + T_r)$
+\STATE $K \leftarrow H_2(U,V,\text{ID}_u, \text{ID}_r)$
+\STATE $\phi \leftarrow (\alpha, \text{ID}_u, P_u, S_u, \text{ID}_r, P_r, U, V)$
+\RETURN $(K, \phi)$
+\end{compactalgo}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.5\textwidth}
+
+\begin{compactalgo}{$\text{CL-}Encaps(\phi,\tau) \rightarrow \gamma$}
+\STATE Parse $\phi$ as $(\alpha, \text{ID}_u, P_u, S_u, \text{ID}_r, P_r, U, V)$
+\STATE Parse $S_u$ as $(t_u, D_u)$ and $P_u$ as $(T_u, R_u)$
+\STATE $l \stackrel{\$}{\leftarrow} \mathbb{Z}^*_q$
+\STATE $\beta \leftarrow lP$
+\STATE $h \leftarrow H_3(\tau, {\text{ID}}_u, {\text{ID}}_r, R_u, R_r, P_u, P_r, \beta, U, V)$
+\STATE $F \leftarrow \frac{l}{(ht_u+D_u)}$
+\STATE $\sigma \leftarrow (F, h)$
+\RETURN $\gamma = (\beta, U, V, \sigma)$
+\end{compactalgo}
+
+\begin{compactalgo}{$\text{CL-}Decaps(\gamma, \tau, \text{ID}_u, P_u, \text{ID}_r, S_r) \rightarrow K$}
+\STATE Parse $\gamma$ as $(\beta, U, V, \sigma)$, $\sigma$ as $(F, h)$
+\STATE Parse $S_r$ as $(t_r, D_r)$ and $P_u$ as $(T_u, R_u)$
+\STATE Compute $W \leftarrow \frac{1}{D_r + t_r} \cdot V$
+\STATE Verify $W = U$ 
+\STATE $h' \leftarrow H_3(\tau, \text{ID}_u, \text{ID}_r, R_u, R_r, P_u, P_r, \beta, U, V)$
+\IF{$h = h'$ AND $F(hT_u + R_u + H_1(\text{ID}_u, R_u)P_{pub}) = \beta$}
+    \STATE $K \leftarrow H_2(U,V,\text{ID}_u, \text{ID}_r)$
+    \RETURN $K$
+\ELSE
+    \RETURN $\perp$
+\ENDIF
+\end{compactalgo}
+
+\begin{compactalgo}{$Signcrypt(PP, P_{data}, \text{ID}_u, P_u, S_u, \text{ID}_r, P_r) \rightarrow CT$}
+\STATE $(K, \phi) \leftarrow Sym_{keygen}(\text{ID}_u, P_u, S_u, \text{ID}_r, P_r)$
+\STATE $c \leftarrow \text{DEM.Enc}_K(P_{data})$
+\STATE $\gamma \leftarrow \text{CL-}Encaps(\phi, c)$
+\RETURN $CT = (\gamma, c)$
+\end{compactalgo}
+
+\begin{compactalgo}{$Unsigncrypt(PP, CT, \text{ID}_u, P_u, \text{ID}_r, P_r, S_r) \rightarrow P_{data}$}
+\STATE Parse $CT$ as $(\gamma, c)$
+\STATE $K \leftarrow \text{CL-}Decaps(\gamma, c, \text{ID}_u, P_u, \text{ID}_r, S_r)$
+\IF{$K = \perp$}
+    \RETURN $\perp$
+\ELSE
+    \STATE $P_{data} \leftarrow \text{DEM.Dec}_K(c)$
+    \RETURN $P_{data}$
+\ENDIF
+\end{compactalgo}
+\end{minipage}
+\end{minipage}
+}
+\caption{Corrected Construction of the Certificateless Hybrid Signcryption Scheme (CL-HSC).}
+\label{fig:scheme}
+\end{figure}
+
+\section{Correctness Analysis}
+
+The correctness of the certificateless hybrid signcryption scheme requires that when a legitimate sender (patient) creates a signcryption of a message for a legitimate receiver (doctor), the receiver can correctly recover the original message. We demonstrate this correctness through two essential components: (1) symmetric key recovery correctness and (2) signature verification correctness.
+
+\subsection{Symmetric Key Recovery Correctness}
+
+We first prove that a legitimate doctor can correctly recover the symmetric key used by the patient to encrypt the medical data. The doctor computes:
+
+\begin{align}
+W &= \frac{1}{D_r + t_r} \cdot V\\
+&= \frac{1}{D_r + t_r} \cdot \alpha(R_r + H_1(\text{ID}_r,R_r)P_{pub} + T_r)
+\end{align}
+
+To verify this computation recovers the correct value $U$, we expand the expression by substituting the defined parameters:
+
+\begin{align}
+W &= \frac{1}{D_r + t_r} \cdot \alpha(R_r + H_1(\text{ID}_r,R_r)P_{pub} + T_r)\\
+&= \frac{1}{D_r + t_r} \cdot \alpha(R_r + H_1(\text{ID}_r,R_r)xP + T_r)
+\end{align}
+
+Since $P_{pub} = xP$ by definition from the $\texttt{GlobalSetup}$ algorithm, and $T_r = t_r P$ from the $\texttt{P\_Keygen}$ algorithm, we continue:
+
+\begin{align}
+W &= \frac{1}{D_r + t_r} \cdot \alpha(R_r + H_1(\text{ID}_r,R_r)xP + t_r P)
+\end{align}
+
+From the $\texttt{Extract}$ algorithm, we know that $D_r = r_r + xH_1(\text{ID}_r,R_r)$ and $R_r = r_r P$. Substituting these values:
+
+\begin{align}
+W &= \frac{1}{D_r + t_r} \cdot \alpha(r_r P + H_1(\text{ID}_r,R_r)xP + t_r P)\\
+&= \frac{1}{D_r + t_r} \cdot \alpha P(r_r + xH_1(\text{ID}_r,R_r) + t_r)
+\end{align}
+
+Continuing with our substitution of $D_r = r_r + xH_1(\text{ID}_r,R_r)$:
+
+\begin{align}
+W &= \frac{1}{D_r + t_r} \cdot \alpha P(D_r + t_r)\\
+&= \alpha P\\
+&= U
+\end{align}
+
+Therefore, $W = U$, confirming that the doctor correctly recovers the value $U$ generated by the patient. This value is essential for deriving the symmetric key $K = H_2(U,V,\text{ID}_u,\text{ID}_r)$ used for encrypting and decrypting the medical data.
+
+\subsection{Signature Verification Correctness}
+
+Next, we prove that the signature verification equation correctly validates a legitimate signcryption. The verification equation checks:
+
+\begin{align}
+F(hT_u + R_u + H_1(\text{ID}_u, R_u)P_{pub}) = \beta
+\end{align}
+
+To prove this equation holds for a legitimate signcryption, we substitute the value of $F = \frac{l}{(ht_u+D_u)}$ as computed in the $\texttt{CL-Encaps}$ algorithm:
+
+\begin{align}
+\frac{l}{(ht_u+D_u)}(hT_u + R_u + H_1(\text{ID}_u, R_u)P_{pub}) = \beta
+\end{align}
+
+Using the definitions $T_u = t_u P$ from $\texttt{P\_Keygen}$ and $P_{pub} = xP$ from $\texttt{GlobalSetup}$:
+
+\begin{align}
+\frac{l}{(ht_u+D_u)}(ht_u P + R_u + H_1(\text{ID}_u, R_u)xP) = \beta
+\end{align}
+
+From the $\texttt{Extract}$ algorithm, we know that $D_u = r_u + xH_1(\text{ID}_u,R_u)$ and $R_u = r_u P$. Substituting these values:
+
+\begin{align}
+\frac{l}{(ht_u+r_u+xH_1(\text{ID}_u,R_u))}(ht_u P + r_u P + H_1(\text{ID}_u, R_u)xP) = \beta
+\end{align}
+
+Factoring out $P$ from the expression in parentheses:
+
+\begin{align}
+\frac{l}{(ht_u+r_u+xH_1(\text{ID}_u,R_u))} \cdot P(ht_u + r_u + xH_1(\text{ID}_u, R_u)) = \beta
+\end{align}
+
+Simplifying the fraction:
+
+\begin{align}
+l \cdot P &= \beta\\
+lP &= \beta
+\end{align}
+
+This confirms that the verification equation holds for a legitimately generated signature, as $\beta = lP$ by definition in the $\texttt{CL-Encaps}$ algorithm.
+
+\section{Security Analysis}
+
+\subsection{Security Models and Adversarial Capabilities}
+
+Before presenting the formal security proofs, we establish the security models and define the capabilities of adversaries in the certificateless setting. In certificateless cryptography, we consider two types of adversaries:
+
+\begin{itemize}
+    \item \textbf{Type I Adversary ($\mathcal{A}_1$)}: Cannot access the master secret key but can replace public keys of any entity. This models an outside attacker who may manipulate the public directory.
+    \item \textbf{Type II Adversary ($\mathcal{A}_2$)}: Has access to the master secret key but cannot replace public keys. This models the honest-but-curious Key Dispensation Server (KDS).
+\end{itemize}
+
+The security of our certificateless hybrid signcryption scheme is established through four main theorems, addressing confidentiality and unforgeability against both types of adversaries.
+
+\subsection{Security Proofs}
+
+\subsubsection{Theorem 1: IND-CCA2 Security against Type I Adversary}
+
+\begin{theorem}
+If the Elliptic Curve Decisional Diffie-Hellman (ECDDH) problem is hard, then the proposed certificateless hybrid signcryption scheme is IND-CCA2 secure against Type I adversary in the random oracle model.
+\end{theorem}
+
+\begin{proof}
+We prove this by contradiction. Assume that there exists a Type I adversary $\mathcal{A}_1$ that can break the IND-CCA2 security of our scheme with non-negligible advantage $\epsilon$. We construct a challenger $\mathcal{C}$ that uses $\mathcal{A}_1$ to solve the ECDDH problem with non-negligible probability.
+
+\textbf{ECDDH Problem}: Given $(P, aP, bP, Z)$, determine whether $Z = abP$ or a random element in group $G$.
+
+The challenger $\mathcal{C}$ receives an ECDDH instance $(P, aP, bP, Z)$ and aims to determine if $Z = abP$. $\mathcal{C}$ simulates the environment for $\mathcal{A}_1$ as follows:
+
+\textbf{Setup Phase}:
+$\mathcal{C}$ sets up the system parameters by setting $P_{pub} = aP$ (implicitly setting the master secret key $x = a$, which is unknown to $\mathcal{C}$). $\mathcal{C}$ selects hash functions $H_1, H_2, H_3$ which will be modeled as random oracles, and gives $PP = \{\mathbb{F}_q, P, E/\mathbb{F}_q, G, P_{pub}, H_1, H_2, H_3\}$ to $\mathcal{A}_1$.
+
+\textbf{Hash Oracle Simulations}:
+$\mathcal{C}$ maintains hash lists $\mathcal{L}_1, \mathcal{L}_2, \mathcal{L}_3$ to respond consistently to $\mathcal{A}_1$'s hash queries:
+
+\begin{itemize}
+    \item $H_1$-queries: For a query $(\text{ID}_i, R_i)$, if it exists in $\mathcal{L}_1$, return the stored value. Otherwise, select random $h_i \in \mathbb{Z}_q^*$, store $(\text{ID}_i, R_i, h_i)$ in $\mathcal{L}_1$, and return $h_i$.
+    
+    \item $H_2$-queries: For a query $(U, V, \text{ID}_u, \text{ID}_r)$, if it exists in $\mathcal{L}_2$, return the stored value. Otherwise, select random $k \in \{0,1\}^n$, store $(U, V, \text{ID}_u, \text{ID}_r, k)$ in $\mathcal{L}_2$, and return $k$.
+    
+    \item $H_3$-queries: For a query $(\tau, \text{ID}_u, \text{ID}_r, R_u, R_r, P_u, P_r, \beta, U, V)$, if it exists in $\mathcal{L}_3$, return the stored value. Otherwise, select random $h \in \mathbb{Z}_q^*$, store $(\tau, \text{ID}_u, \text{ID}_r, R_u, R_r, P_u, P_r, \beta, U, V, h)$ in $\mathcal{L}_3$, and return $h$.
+\end{itemize}
+
+\textbf{Phase 1 Queries}:
+$\mathcal{A}_1$ issues a series of queries that $\mathcal{C}$ answers as follows:
+
+\begin{itemize}
+    \item \textbf{Partial Private Key Extract Queries}: For identity $\text{ID}_i$, $\mathcal{C}$ performs:
+    \begin{enumerate}
+        \item Retrieve $h_i = H_1(\text{ID}_i, R_i)$ from $\mathcal{L}_1$ (or generate it if not present)
+        \item If $\text{ID}_i = \text{ID}_r^*$ (the target recipient identity $\mathcal{C}$ will use in the challenge phase), abort the simulation (this event occurs with negligible probability)
+        \item Otherwise, randomly select $r_i, d_i \in \mathbb{Z}_q^*$
+        \item Compute $R_i = r_iP - h_i P_{pub}$ (thus implicitly setting $D_i = r_i$ and $R_i$ such that $r_i = D_i + a \cdot h_i$)
+        \item Return $(D_i, R_i) = (r_i, R_i)$ to $\mathcal{A}_1$
+    \end{enumerate}
+    
+    \item \textbf{Private Key Extract Queries}: For identity $\text{ID}_i$, $\mathcal{C}$ first obtains the partial private key $(D_i, R_i)$ as above. If the public key of $\text{ID}_i$ has been replaced by $\mathcal{A}_1$, return $\perp$. Otherwise, retrieve $t_i$ (selected when responding to Public Key Request queries) and return $S_i = (t_i, D_i)$.
+    
+    \item \textbf{Public Key Request Queries}: For identity $\text{ID}_i$, if there's an entry in the public key list, return the stored public key. Otherwise, select random $t_i \in \mathbb{Z}_q^*$, compute $T_i = t_i P$, store $(\text{ID}_i, T_i, t_i, \text{true})$ in the public key list, and return $P_i = (T_i, R_i)$.
+    
+    \item \textbf{Public Key Replace Queries}: For identity $\text{ID}_i$ and new public key $P_i' = (T_i', R_i')$, update the public key list entry to $(\text{ID}_i, T_i', \perp, \text{false})$, indicating that $\mathcal{C}$ does not know the corresponding secret value.
+    
+    \item \textbf{Signcryption Queries}: For a signcryption query $(m, \text{ID}_u, \text{ID}_r)$, $\mathcal{C}$ performs:
+    \begin{enumerate}
+        \item If $\mathcal{C}$ knows the private key of $\text{ID}_u$, perform the signcryption normally and return the result.
+        \item If the private key is unknown (e.g., due to public key replacement), $\mathcal{C}$ employs a special simulation:
+        \begin{enumerate}
+            \item Select random values for all necessary components
+            \item Manipulate the random oracle $H_3$ to ensure the signature verification equation holds
+            \item Return the simulated signcryption
+        \end{enumerate}
+    \end{enumerate}
+    
+    \item \textbf{Unsigncryption Queries}: For an unsigncryption query $(CT, \text{ID}_u, \text{ID}_r)$, $\mathcal{C}$ performs:
+    \begin{enumerate}
+        \item If $\mathcal{C}$ knows the private key of $\text{ID}_r$, perform the unsigncryption normally.
+        \item If the private key is unknown, $\mathcal{C}$ examines all entries in the hash lists to find matching parameters that would validate the signcryption. If found, return the associated message; otherwise, return $\perp$.
+    \end{enumerate}
+\end{itemize}
+
+\textbf{Challenge Phase}:
+When $\mathcal{A}_1$ decides to end Phase 1, it outputs two equal-length messages $(m_0, m_1)$ and identity pair $(\text{ID}_u^*, \text{ID}_r^*)$ subject to the constraints:
+\begin{enumerate}
+    \item $\mathcal{A}_1$ has not queried the private key of $\text{ID}_r^*$
+    \item If $\mathcal{A}_1$ has replaced the public key of $\text{ID}_r^*$, it has not queried the partial private key of $\text{ID}_r^*$
+\end{enumerate}
+
+$\mathcal{C}$ responds as follows:
+\begin{enumerate}
+    \item Retrieve or generate public keys $P_u^* = (T_u^*, R_u^*)$ for $\text{ID}_u^*$ and $P_r^* = (T_r^*, R_r^*)$ for $\text{ID}_r^*$
+    \item Set $U^* = bP$ (from the ECDDH instance) and $T_r^* = cP$ for some known $c$
+    \item Set $V^* = Z + c \cdot bP$ (thus if $Z = abP$, then $V^* = abP + cbP = bP(a + c) = b(R_r^* + aH_1(\text{ID}_r^*, R_r^*)P + T_r^*)$, which is a valid $V$ value)
+    \item Choose random bit $\lambda \in \{0, 1\}$
+    \item Choose random $k^* \in \{0,1\}^n$ and define $H_2(U^*, V^*, \text{ID}_u^*, \text{ID}_r^*) = k^*$
+    \item Compute $c^* = \text{DEM.Enc}_{k^*}(m_\lambda)$
+    \item Simulate a valid signature $\sigma^*$ by manipulating the $H_3$ oracle
+    \item Set $\gamma^* = (\beta^*, U^*, V^*, \sigma^*)$ and return $CT^* = (\gamma^*, c^*)$ to $\mathcal{A}_1$
+\end{enumerate}
+
+\textbf{Phase 2 Queries}:
+$\mathcal{A}_1$ can continue making queries as in Phase 1, with the added restriction that it cannot query the unsigncryption of $CT^*$ under $(\text{ID}_u^*, \text{ID}_r^*)$. $\mathcal{C}$ answers these queries as in Phase 1.
+
+\textbf{Guess Phase}:
+Eventually, $\mathcal{A}_1$ outputs a guess $\lambda'$. $\mathcal{C}$ concludes as follows:
+\begin{itemize}
+    \item If $\lambda' = \lambda$, $\mathcal{C}$ outputs 1, indicating its belief that $Z = abP$
+    \item Otherwise, $\mathcal{C}$ outputs 0, indicating its belief that $Z$ is random
+\end{itemize}
+
+\textbf{Analysis}:
+If $Z = abP$, then $CT^*$ is a valid signcryption of $m_\lambda$, and $\mathcal{A}_1$ has advantage $\epsilon$ in guessing $\lambda$ correctly.
+
+If $Z$ is random, then the symmetric key $k^*$ is independent of $(U^*, V^*)$, and $\mathcal{A}_1$ has no information about $\lambda$, giving only a 1/2 probability of guessing correctly.
+
+Therefore, $\mathcal{C}$ has advantage $\epsilon/2$ in solving the ECDDH problem, contradicting the hardness assumption. Thus, the scheme is IND-CCA2 secure against Type I adversaries.
+\end{proof}
+
+\subsubsection{Theorem 2: IND-CCA2 Security against Type II Adversary}
+
+\begin{theorem}
+If the Elliptic Curve Decisional Diffie-Hellman (ECDDH) problem is hard, then the proposed certificateless hybrid signcryption scheme is IND-CCA2 secure against Type II adversary in the random oracle model.
+\end{theorem}
+
+\begin{proof}
+The proof follows a similar structure to Theorem 1, with key differences reflecting the capabilities of Type II adversaries.
+
+Let $\mathcal{A}_2$ be a Type II adversary with non-negligible advantage $\epsilon$ against the IND-CCA2 security of our scheme. We construct a challenger $\mathcal{C}$ that uses $\mathcal{A}_2$ to solve the ECDDH problem.
+
+\textbf{Setup Phase}:
+$\mathcal{C}$ receives an ECDDH instance $(P, aP, bP, Z)$ and sets up the system parameters. Unlike Theorem 1, $\mathcal{C}$ knows the master secret key $x$ and gives it to $\mathcal{A}_2$ along with the public parameters $PP$.
+
+\textbf{Hash Oracle Simulations}:
+$\mathcal{C}$ maintains hash lists $\mathcal{L}_1, \mathcal{L}_2, \mathcal{L}_3$ as in Theorem 1.
+
+\textbf{Phase 1 Queries}:
+$\mathcal{A}_2$ issues queries that $\mathcal{C}$ answers as follows:
+
+\begin{itemize}
+    \item \textbf{Private Key Extract Queries}: For identity $\text{ID}_i$, if $\text{ID}_i = \text{ID}_r^*$ (the target recipient identity $\mathcal{C}$ will use in the challenge phase), abort. Otherwise, $\mathcal{C}$ computes the partial private key using the master secret key $x$. For the secret value component, if $\text{ID}_i = \text{ID}_u^*$ (the target sender), $\mathcal{C}$ implicitly sets $t_i = a$ (from the ECDDH instance) and sets $T_i = aP$. Otherwise, $\mathcal{C}$ selects a random $t_i$ and computes $T_i = t_i P$. $\mathcal{C}$ returns $S_i = (t_i, D_i)$ if $\text{ID}_i \neq \text{ID}_u^*$, otherwise returns only $D_i$.
+    
+    \item \textbf{Public Key Request Queries}: For identity $\text{ID}_i$, if $\text{ID}_i = \text{ID}_u^*$, return $P_i = (aP, R_i)$. Otherwise, compute as in Theorem 1.
+    
+    \item \textbf{Signcryption and Unsigncryption Queries}: Handled similarly to Theorem 1, with adaptations for Type II adversary capabilities.
+\end{itemize}
+
+\textbf{Challenge Phase}:
+When $\mathcal{A}_2$ outputs messages $(m_0, m_1)$ and identities $(\text{ID}_u^*, \text{ID}_r^*)$, $\mathcal{C}$ proceeds as follows:
+\begin{enumerate}
+    \item Set $U^* = bP$ and $T_r^* = R_r^* + H_1(\text{ID}_r^*, R_r^*)P_{pub}$
+    \item Set $V^* = Z$ (thus if $Z = abP$, then $V^* = abP = b \cdot aP = b \cdot T_u^*$, which is a valid $V$ value)
+    \item Choose random bit $\lambda$ and random key $k^*$
+    \item Define $H_2(U^*, V^*, \text{ID}_u^*, \text{ID}_r^*) = k^*$
+    \item Compute $c^* = \text{DEM.Enc}_{k^*}(m_\lambda)$
+    \item Generate signature $\sigma^*$ by simulating the signing process
+    \item Return $CT^* = ((\beta^*, U^*, V^*, \sigma^*), c^*)$
+\end{enumerate}
+
+\textbf{Phase 2 Queries} and \textbf{Guess Phase} proceed as in Theorem 1.
+
+\textbf{Analysis}:
+The analysis follows the same reasoning as in Theorem 1. If $Z = abP$, then $CT^*$ is a valid signcryption and $\mathcal{A}_2$ has advantage $\epsilon$. If $Z$ is random, $\mathcal{A}_2$ has no advantage. Thus, $\mathcal{C}$ has advantage $\epsilon/2$ in solving the ECDDH problem, contradicting the hardness assumption.
+\end{proof}
+
+\subsubsection{Theorem 3: EUF-CMA Security against Type I Adversary}
+
+\begin{theorem}
+If the Elliptic Curve Discrete Logarithm Problem (ECDLP) is hard, then the proposed certificateless hybrid signcryption scheme is existentially unforgeable against chosen message attacks (EUF-CMA) by Type I adversaries in the random oracle model.
+\end{theorem}
+
+\begin{proof}
+We proceed by contradiction. Assume there exists a Type I adversary $\mathcal{A}_1$ that can break the EUF-CMA security of our scheme with non-negligible advantage $\epsilon$. We construct a challenger $\mathcal{C}$ that uses $\mathcal{A}_1$ to solve the ECDLP with non-negligible probability.
+
+\textbf{ECDLP Problem}: Given $(P, Q = aP)$, find $a \in \mathbb{Z}_q^*$.
+
+The challenger $\mathcal{C}$ receives an ECDLP instance $(P, Q = aP)$ and aims to compute $a$.
+
+\textbf{Setup Phase}:
+$\mathcal{C}$ selects a random identity $\text{ID}^*$ that it guesses will be the target of $\mathcal{A}_1$'s forgery. $\mathcal{C}$ selects a master secret key $x$ and computes $P_{pub} = xP$. It selects hash functions $H_1, H_2, H_3$ which will be modeled as random oracles, and gives $PP = \{\mathbb{F}_q, P, E/\mathbb{F}_q, G, P_{pub}, H_1, H_2, H_3\}$ to $\mathcal{A}_1$.
+
+\textbf{Hash Oracle Simulations}:
+$\mathcal{C}$ maintains hash lists as in Theorem 1.
+
+\textbf{Phase Queries}:
+$\mathcal{A}_1$ issues queries that $\mathcal{C}$ answers as follows:
+
+\begin{itemize}
+    \item \textbf{Partial Private Key Extract Queries}: For identity $\text{ID}_i$, $\mathcal{C}$ computes the partial private key using the master secret key $x$ and returns $(D_i, R_i)$.
+    
+    \item \textbf{Private Key Extract Queries}: For identity $\text{ID}_i$, if $\text{ID}_i = \text{ID}^*$, abort (as this would allow $\mathcal{A}_1$ to trivially forge signatures). Otherwise, proceed as in Theorem 1.
+    
+    \item \textbf{Public Key Request Queries}: For identity $\text{ID}_i$, if $\text{ID}_i = \text{ID}^*$, set $T_i = Q = aP$ (from the ECDLP instance). Otherwise, select random $t_i$, compute $T_i = t_i P$, and return $P_i = (T_i, R_i)$.
+    
+    \item \textbf{Public Key Replace Queries}: Handle as in Theorem 1. If $\mathcal{A}_1$ replaces the public key of $\text{ID}^*$, keep track of this event.
+    
+    \item \textbf{Signcryption Queries}: For $(m, \text{ID}_u, \text{ID}_r)$, if $\text{ID}_u = \text{ID}^*$ and $\mathcal{C}$ doesn't know the secret value (due to setting $T_u = Q$), $\mathcal{C}$ employs a special signature simulation technique:
+    \begin{enumerate}
+        \item Select random $\beta, h, F$
+        \item Define $H_3(...) = h$ appropriately
+        \item Set up the signature components to ensure validation
+        \item Complete the signcryption normally
+    \end{enumerate}
+    Otherwise, proceed with normal signcryption.
+    
+    \item \textbf{Unsigncryption Queries}: Handle as in Theorem 1.
+\end{itemize}
+
+\textbf{Forgery Phase}:
+Eventually, $\mathcal{A}_1$ outputs a forged signcryption $CT^* = (\gamma^*, c^*)$ from $\text{ID}_u^*$ to some $\text{ID}_r^*$, where $\gamma^* = (\beta^*, U^*, V^*, \sigma^*)$ and $\sigma^* = (F^*, h^*)$.
+
+\textbf{Analysis}:
+If $\text{ID}_u^* = \text{ID}^*$ (which happens with probability at least $1/q_H$, where $q_H$ is the number of hash queries), then $\mathcal{C}$ can extract the discrete logarithm $a$ as follows:
+
+From the verification equation, we have:
+\begin{align}
+F^* \cdot (h^* \cdot T_u^* + R_u^* + H_1(\text{ID}_u^*, R_u^*) \cdot P_{pub}) = \beta^*
+\end{align}
+
+Since $T_u^* = Q = aP$, this gives:
+\begin{align}
+F^* \cdot (h^* \cdot aP + R_u^* + H_1(\text{ID}_u^*, R_u^*) \cdot P_{pub}) = \beta^*
+\end{align}
+
+If the public key of $\text{ID}_u^*$ has not been replaced, then from the signcryption algorithm, we know:
+\begin{align}
+F^* = \frac{l^*}{h^* \cdot a + D_u^*}
+\end{align}
+where $l^*$ is such that $\beta^* = l^* \cdot P$.
+
+Rearranging these equations allows $\mathcal{C}$ to solve for $a$, thus solving the ECDLP instance. This contradicts the hardness assumption of ECDLP. Therefore, the scheme is EUF-CMA secure against Type I adversaries.
+\end{proof}
+
+\subsubsection{Theorem 4: EUF-CMA Security against Type II Adversary}
+
+\begin{theorem}
+If the Elliptic Curve Discrete Logarithm Problem (ECDLP) is hard, then the proposed certificateless hybrid signcryption scheme is existentially unforgeable against chosen message attacks (EUF-CMA) by Type II adversaries in the random oracle model.
+\end{theorem}
+
+\begin{proof}
+The proof structure is similar to Theorem 3, adapted for Type II adversaries.
+
+Let $\mathcal{A}_2$ be a Type II adversary with non-negligible advantage $\epsilon$ against the EUF-CMA security of our scheme. We construct a challenger $\mathcal{C}$ that uses $\mathcal{A}_2$ to solve the ECDLP.
+
+\textbf{Setup Phase}:
+$\mathcal{C}$ receives an ECDLP instance $(P, Q = aP)$ and selects a random identity $\text{ID}^*$ as the target of forgery. Unlike in Theorem 3, $\mathcal{C}$ gives the master secret key $x$ to $\mathcal{A}_2$ along with the public parameters.
+
+\textbf{Hash Oracle Simulations}:
+Maintained as in previous theorems.
+
+\textbf{Phase Queries}:
+$\mathcal{A}_2$ issues queries that $\mathcal{C}$ answers as follows:
+
+\begin{itemize}
+    \item \textbf{Private Key Extract Queries}: For identity $\text{ID}_i$, if $\text{ID}_i = \text{ID}^*$, abort. Otherwise, compute the partial private key using the master secret key $x$ (which $\mathcal{A}_2$ also knows). For the secret value component, select random $t_i$, compute $T_i = t_i P$, and return $S_i = (t_i, D_i)$.
+    
+    \item \textbf{Public Key Request Queries}: For identity $\text{ID}_i$, if $\text{ID}_i = \text{ID}^*$, set $T_i = Q = aP$ and $R_i$ normally. Otherwise, select random $t_i$, compute $T_i = t_i P$, and return $P_i = (T_i, R_i)$.
+    
+    \item \textbf{Signcryption and Unsigncryption Queries}: Handled similarly to Theorem 3, with adaptations for Type II adversary capabilities.
+\end{itemize}
+
+\textbf{Forgery Phase}:
+$\mathcal{A}_2$ outputs a forged signcryption $CT^* = (\gamma^*, c^*)$ from $\text{ID}_u^*$ to some $\text{ID}_r^*$.
+
+\textbf{Analysis}:
+If $\text{ID}_u^* = \text{ID}^*$, then $\mathcal{C}$ can extract the discrete logarithm $a$ as in Theorem 3. The key difference is that Type II adversaries cannot replace public keys but know the master secret key. This means that if the forgery is valid, $\mathcal{C}$ can isolate the contribution of the secret value $a$ in the verification equation.
+
+From the verification equation and the structure of the signature, $\mathcal{C}$ can algebraically solve for $a$, thus solving the ECDLP instance and contradicting the hardness assumption.
+\end{proof}
+\end{document}

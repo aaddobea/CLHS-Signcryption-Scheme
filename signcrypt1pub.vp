@@ -1,0 +1,88 @@
+attacker [active]
+
+// Global setup
+principal KDS[
+   knows private security_parameter // generates security parameter
+   global_parameters = G^security_parameter // publish global parameters to the public
+    knows private x // private key or secret key
+    KDS_pub = G^x // The KDS computes its  public key
+]
+
+
+//Participants key generation process -> Each participant generates its private and public key pair
+// NB:  The participants  consists of doctor and the patient.
+principal Patient[
+    generates Patient_identity // Patient's identifier 
+    knows private p // Randomly generate a secret value∏
+    Patient_pub = G^p  //  Computes patient's public key
+]
+
+Patient -> KDS : Patient_identity
+
+principal Doctor[
+    generates Doctor_identity// Doctor's identifier 
+    knows private d // secret value∏
+    Doctor_pub = G^d //  Doctor's public key computation
+]
+
+Doctor -> KDS : Doctor_identity
+
+//Partial private key extraction process. KDS derives a partial private key for each participant
+principal KDS[
+ Extract_P = HASH(Patient_identity,x)  // construction of partial private key for Patient
+ Extract_D = HASH(Doctor_identity,x) // construction of partial private key for the doctor
+]
+
+KDS -> Patient:[Extract_P] // submit partial private key to Patient
+KDS -> Doctor:[Extract_D] //  submit partial private key to Doctor
+
+
+//KeySetup process
+principal Patient[
+    P_priv = HASH(Extract_P,p)//  Patient's full private key 
+    P_pub = HASH(Extract_P, Patient_pub) // Patient's full public key 
+]
+
+principal Doctor[
+    D_priv = HASH(Extract_D,d)//  Patient's full private key 
+    D_pub = HASH(Extract_D, Doctor_pub) // Patient's full public key 
+]
+
+Doctor -> Patient: [D_pub]
+
+//Symmetric key process performed by the patient
+principal Patient[
+    knows private EMRdata
+    knows private symKey
+    generates timestamp
+    tag = HASH(symKey,timestamp) 
+    SymkeyEnc = PKE_ENC(tag,D_pub) // Encrypt symmetric key with public key
+   // SymkeyEnc = HASH(tag,symKey)   // Encrypt symmetric key with public key
+    H_EMRdata=MAC(tag,EMRdata) // generates MAC for the medical data
+
+    // Start Signcryption
+    EMREnc = ENC(SymkeyEnc, H_EMRdata) // EMR data encryption
+    signature = SIGN(P_priv,EMREnc) //signing encrypted EMR data
+]
+
+Patient -> Doctor : [EMREnc], [SymkeyEnc], [signature],[symKey],[p_pub],[tag], [H_EMRdata]
+principal Doctor[
+    SymkeyDec =PKE_DEC(tag, D_priv) 
+    EMRDec = DEC(tag, EMREnc) //  medical data decryption
+    signaturecheck = SIGNVERIF(P_pub, EMRDec,  signature) //verfies signature
+]
+
+// Query checking to determine if proposed protocol satisfies the following security requirements.
+//Query checking
+
+queries[
+    confidentiality? EMRdata
+    freshness? tag
+    freshness? signature
+    authentication? KDS -> Patient: [Extract_P]
+    authentication? KDS -> Doctor: [Extract_D]
+    authentication? Patient -> Doctor: [signature]
+    authentication? Patient -> Doctor: [EMREnc]
+    unlinkability? SymkeyEnc, signature
+]
+
